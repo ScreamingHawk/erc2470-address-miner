@@ -3,6 +3,8 @@ package crypto
 import (
 	"encoding/hex"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // TestKeccak256 tests the keccak256Bytes function
@@ -47,11 +49,24 @@ func TestCalculateCreate2Address(t *testing.T) {
 		t.Fatalf("Failed to decode bytecode: %v", err)
 	}
 
-	// Calculate address using our function
-	address, err := CalculateCreate2Address(initCode, salt)
+	// Calculate initcode hash
+	initCodeHash := Keccak256(initCode)
+
+	// Get factory address
+	factoryBytes, err := MustAddressBytes(FactoryAddress)
 	if err != nil {
-		t.Fatalf("CalculateCreate2Address failed: %v", err)
+		t.Fatalf("Failed to get factory address: %v", err)
 	}
+	factoryAddress := common.BytesToAddress(factoryBytes)
+
+	// Decode salt to bytes
+	saltBytes, err := hex.DecodeString(salt[2:]) // Remove 0x prefix
+	if err != nil {
+		t.Fatalf("Failed to decode salt: %v", err)
+	}
+
+	// Calculate address using our function
+	address := CalculateCreate2Address(factoryAddress, initCodeHash, saltBytes)
 
 	if address != expectedAddress {
 		t.Errorf("CalculateCreate2Address() = %s, want %s", address, expectedAddress)

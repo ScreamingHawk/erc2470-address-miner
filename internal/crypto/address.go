@@ -16,59 +16,17 @@ const (
 	FactoryAddress = "0xce0042B868300000d44A59004Da54A005ffdcf9f"
 )
 
-// CalculateCreate2Address calculates the CREATE2 address for the given init code and salt.
-// - salt may be hex (with or without 0x) of up to 32 bytes (left-padded with zeros if shorter).
-// - if salt is not valid hex, we keccak256(salt) to get a 32-byte salt.
-func CalculateCreate2Address(initCode []byte, salt string) (string, error) {
-	initCodeHash := keccak256Bytes(initCode)
-	return CalculateCreate2AddressWithHash(initCodeHash, salt)
-}
-
-// CalculateCreate2AddressWithHash calculates the CREATE2 address using a pre-computed initcode hash.
-// This is more efficient when the same initcode is used repeatedly.
-func CalculateCreate2AddressWithHash(initCodeHash []byte, salt string) (string, error) {
-	factoryBytes, err := mustAddressBytes(FactoryAddress)
-	if err != nil {
-		return "", err
-	}
-
-	saltBytes, err := normalizeSalt(salt)
-	if err != nil {
-		return "", err
-	}
-
-	// Convert factory bytes to common.Address
-	factoryAddress := common.BytesToAddress(factoryBytes)
-
+// CalculateCreate2Address calculates the CREATE2 address with minimal allocations
+// This version avoids string allocations and uses pre-allocated buffers
+func CalculateCreate2Address(factoryAddress common.Address, initCodeHash []byte, saltBytes []byte) string {
 	// Convert salt bytes to [32]byte array
 	var saltArray [32]byte
 	copy(saltArray[:], saltBytes)
 
-	// Use go-ethereum's CreateAddress2 function with pre-computed hash
+	// Use go-ethereum's CreateAddress2 function
 	address := crypto.CreateAddress2(factoryAddress, saltArray, initCodeHash)
 
-	return toChecksumAddress(address.Bytes()), nil
-}
-
-// CalculateCreate2AddressOptimized calculates the CREATE2 address using pre-computed factory bytes and initcode hash.
-// This is the most efficient version for repeated calculations.
-func CalculateCreate2AddressOptimized(factoryBytes, initCodeHash []byte, salt string) (string, error) {
-	saltBytes, err := normalizeSalt(salt)
-	if err != nil {
-		return "", err
-	}
-
-	// Convert factory bytes to common.Address
-	factoryAddress := common.BytesToAddress(factoryBytes)
-
-	// Convert salt bytes to [32]byte array
-	var saltArray [32]byte
-	copy(saltArray[:], saltBytes)
-
-	// Use go-ethereum's CreateAddress2 function with pre-computed values
-	address := crypto.CreateAddress2(factoryAddress, saltArray, initCodeHash)
-
-	return toChecksumAddress(address.Bytes()), nil
+	return toChecksumAddress(address.Bytes())
 }
 
 // ---- helpers ----

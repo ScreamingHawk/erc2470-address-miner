@@ -11,7 +11,6 @@ func TestNewMiner(t *testing.T) {
 	cfg := config.NewConfig()
 	cfg.Prefix = "0000"
 	cfg.Bytecode = "608060405234801561001057600080fd5b50600436106100365760003560e01c8063"
-
 	logger := logger.New()
 	miner := NewMiner(cfg, logger)
 	if miner == nil {
@@ -56,9 +55,9 @@ func TestMinerIsBetter(t *testing.T) {
 			cfg.Bytecode = "608060405234801561001057600080fd5b50600436106100365760003560e01c8063"
 			logger := logger.New()
 			miner := NewMiner(cfg, logger)
-			result := miner.isBetterOptimized(tt.newAddr, tt.oldAddr)
+			result := miner.isBetter(tt.newAddr, tt.oldAddr)
 			if result != tt.expected {
-				t.Errorf("isBetterOptimized() = %v, want %v", result, tt.expected)
+				t.Errorf("isBetter() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

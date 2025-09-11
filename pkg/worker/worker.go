@@ -3,9 +3,9 @@ package worker
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"math/big"
 	"sync/atomic"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/screa/erc2470-address-miner/internal/crypto"
 	"github.com/screa/erc2470-address-miner/pkg/types"
 )
@@ -16,27 +16,55 @@ type Worker struct {
 	attempts   *int64
 	bestResult *types.Result
 	mu         *atomic.Value // For thread-safe best result updates
+
+	// Pre-allocated buffers for performance
+	saltBuffer [32]byte
+	hexBuffer  [64]byte // 32 bytes * 2 for hex encoding
+
+	// Pre-computed values for faster address calculation
+	factoryAddress common.Address
 }
 
 // NewWorker creates a new worker instance
 func NewWorker(config *types.WorkerConfig, attempts *int64, mu *atomic.Value) *Worker {
+	// Pre-compute factory address for faster calculations
+	factoryAddress := common.BytesToAddress(config.FactoryBytes)
+
 	return &Worker{
-		config:   config,
-		attempts: attempts,
-		mu:       mu,
+		config:         config,
+		attempts:       attempts,
+		mu:             mu,
+		factoryAddress: factoryAddress,
 	}
+}
+
+// fastHexEncode encodes bytes to hex string using pre-allocated buffer
+func (w *Worker) fastHexEncode(data []byte) string {
+	hex.Encode(w.hexBuffer[:], data)
+	return string(w.hexBuffer[:len(data)*2])
+}
+
+// fastRandomSaltBytes generates a random salt as bytes (most efficient)
+func (w *Worker) fastRandomSaltBytes() []byte {
+	if _, err := rand.Read(w.saltBuffer[:]); err != nil {
+		return nil
+	}
+	return w.saltBuffer[:]
 }
 
 // GenerateAddress generates a single address and checks if it matches criteria
 func (w *Worker) GenerateAddress() *types.WorkerResult {
-	// Generate random salt
-	saltBuffer := make([]byte, 32)
-	if _, err := rand.Read(saltBuffer); err != nil {
+	// Generate random salt as bytes (most efficient)
+	saltBytes := w.fastRandomSaltBytes()
+	if saltBytes == nil {
 		return nil
 	}
 
-	salt := hex.EncodeToString(saltBuffer)
-	address := w.hashToAddressOptimized(salt)
+	// Convert to hex string for the result
+	salt := w.fastHexEncode(saltBytes)
+
+	// Calculate address using the fast method
+	address := crypto.CalculateCreate2Address(w.factoryAddress, w.config.InitcodeHash, saltBytes)
 
 	// Increment attempt counter
 	atomic.AddInt64(w.attempts, 1)
@@ -54,17 +82,18 @@ func (w *Worker) GenerateAddress() *types.WorkerResult {
 
 // ProcessBatch processes a batch of address generations
 func (w *Worker) ProcessBatch(batchSize int) *types.WorkerResult {
-	// Pre-allocate buffer for better performance
-	saltBuffer := make([]byte, 32)
-
 	for i := 0; i < batchSize; i++ {
-		// Generate random salt
-		if _, err := rand.Read(saltBuffer); err != nil {
+		// Generate random salt as bytes (most efficient)
+		saltBytes := w.fastRandomSaltBytes()
+		if saltBytes == nil {
 			continue
 		}
 
-		salt := hex.EncodeToString(saltBuffer)
-		address := w.hashToAddressOptimized(salt)
+		// Convert to hex string for the result
+		salt := w.fastHexEncode(saltBytes)
+
+		// Calculate address using the fast method
+		address := crypto.CalculateCreate2Address(w.factoryAddress, w.config.InitcodeHash, saltBytes)
 
 		// Increment attempt counter
 		atomic.AddInt64(w.attempts, 1)
@@ -78,37 +107,14 @@ func (w *Worker) ProcessBatch(batchSize int) *types.WorkerResult {
 				IsMatch:  true,
 			}
 		}
-
-		// For zero prefix, track the best (lowest) address found
-		if w.config.Prefix == "0000" {
-			w.updateBestResult(salt, address)
-		}
 	}
 
 	return nil
 }
 
-// updateBestResult updates the best result if the new address is better
-func (w *Worker) updateBestResult(salt, address string) {
-	// This is a simplified version - in practice, you'd want proper synchronization
-	// For now, we'll let the miner handle this logic
-}
-
-// hashToAddressOptimized performs optimized address generation
-func (w *Worker) hashToAddressOptimized(salt string) string {
-	// Calculate CREATE2 address using pre-computed factory bytes and initcode hash
-	address, err := crypto.CalculateCreate2AddressOptimized(w.config.FactoryBytes, w.config.InitcodeHash, salt)
-	if err != nil {
-		// This should not happen with valid bytecode
-		panic("CREATE2 calculation failed: " + err.Error())
-	}
-
-	return address
-}
-
 // matchesOptimized performs optimized pattern matching
 func (w *Worker) matchesOptimized(address string) bool {
-	// Remove 0x prefix for comparison
+	// Remove 0x prefix for comparison - use unsafe to avoid allocation
 	addr := address[2:] // Skip "0x"
 
 	// Check target
@@ -120,40 +126,29 @@ func (w *Worker) matchesOptimized(address string) bool {
 		return addr == targetClean
 	}
 
-	// Check prefix
+	// Check prefix - use optimized string comparison
 	if w.config.Prefix != "" {
 		prefixClean := w.config.Prefix
 		if len(prefixClean) > 2 && prefixClean[:2] == "0x" {
 			prefixClean = prefixClean[2:]
 		}
-		if len(addr) >= len(prefixClean) && addr[:len(prefixClean)] == prefixClean {
-			return true
+		prefixLen := len(prefixClean)
+		if len(addr) >= prefixLen {
+			return addr[:prefixLen] == prefixClean
 		}
 	}
 
-	// Check suffix
+	// Check suffix - use optimized string comparison
 	if w.config.Suffix != "" {
 		suffixClean := w.config.Suffix
 		if len(suffixClean) > 2 && suffixClean[:2] == "0x" {
 			suffixClean = suffixClean[2:]
 		}
-		if len(addr) >= len(suffixClean) && addr[len(addr)-len(suffixClean):] == suffixClean {
-			return true
+		suffixLen := len(suffixClean)
+		if len(addr) >= suffixLen {
+			return addr[len(addr)-suffixLen:] == suffixClean
 		}
 	}
 
 	return false
-}
-
-// isBetterOptimized performs optimized address comparison
-func (w *Worker) isBetterOptimized(newAddr, oldAddr string) bool {
-	// Remove 0x prefix for comparison
-	newClean := newAddr[2:] // Skip "0x"
-	oldClean := oldAddr[2:] // Skip "0x"
-
-	// Compare as big integers to find "lowest" address
-	newInt, _ := new(big.Int).SetString(newClean, 16)
-	oldInt, _ := new(big.Int).SetString(oldClean, 16)
-
-	return newInt.Cmp(oldInt) < 0
 }

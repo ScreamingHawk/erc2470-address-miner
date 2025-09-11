@@ -134,7 +134,7 @@ func (m *Miner) worker(workerID int) {
 				// For zero prefix, track the best (lowest) address found for all addresses
 				if m.config.IsZeroPrefix() {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetterOptimized(result.Address, m.bestResult.Address) {
+					if m.bestResult == nil || m.isBetter(result.Address, m.bestResult.Address) {
 						m.bestResult = &types.Result{
 							Salt:     result.Salt,
 							Address:  result.Address,
@@ -147,7 +147,7 @@ func (m *Miner) worker(workerID int) {
 				// Check if this matches our criteria
 				if result.IsMatch {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetterOptimized(result.Address, m.bestResult.Address) {
+					if m.bestResult == nil || m.isBetter(result.Address, m.bestResult.Address) {
 						m.bestResult = &types.Result{
 							Salt:     result.Salt,
 							Address:  result.Address,
@@ -163,8 +163,8 @@ func (m *Miner) worker(workerID int) {
 	}
 }
 
-// isBetterOptimized performs optimized address comparison
-func (m *Miner) isBetterOptimized(newAddr, oldAddr string) bool {
+// Performs optimized address comparison
+func (m *Miner) isBetter(newAddr, oldAddr string) bool {
 	// Remove 0x prefix for comparison
 	newClean := newAddr[2:] // Skip "0x"
 	oldClean := oldAddr[2:] // Skip "0x"
