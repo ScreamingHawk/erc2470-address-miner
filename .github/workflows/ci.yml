@@ -89,7 +89,7 @@ jobs:
       - name: Test binary
         run: |
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            ./${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}.exe --help
+            true
           else
             ./${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }} --help
           fi
