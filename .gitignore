@@ -4,8 +4,6 @@
 *.dll
 *.so
 *.dylib
-bin/
-dist/
 
 # Test binary, built with `go test -c`
 *.test
@@ -35,42 +33,48 @@ go.work
 ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-
-# nyc test coverage
-.nyc_output
-
-# Dependency directories
-node_modules/
-
-# Optional npm cache directory
-.npm
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
-.env
-.env.test
-.env.local
-.env.production
-
 # Build artifacts
+bin/
+dist/
 build/
-target/
+
+# Log files
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# Profiling files
+*.prof
+*.pprof
+
+# Local configuration files
+config.local.yaml
+config.local.json
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.tar.gz
+*.zip
+*.rar
+
+# Docker
+.dockerignore
+
+# Local development
+local/
+dev/

@@ -11,70 +11,15 @@ func TestNewMiner(t *testing.T) {
 	cfg := config.NewConfig()
 	cfg.Prefix = "0000"
 	cfg.Bytecode = "608060405234801561001057600080fd5b50600436106100365760003560e01c8063"
-	
+
 	logger := logger.New()
 	miner := NewMiner(cfg, logger)
 	if miner == nil {
 		t.Fatal("NewMiner returned nil")
 	}
-	
+
 	if miner.config != cfg {
 		t.Error("Config not set correctly")
-	}
-}
-
-func TestMinerMatches(t *testing.T) {
-	tests := []struct {
-		name     string
-		address  string
-		config   *config.Config
-		expected bool
-	}{
-		{
-			name:    "prefix match",
-			address: "0x1234567890abcdef1234567890abcdef12345678",
-			config: &config.Config{
-				Prefix: "1234",
-			},
-			expected: true,
-		},
-		{
-			name:    "suffix match",
-			address: "0x1234567890abcdef1234567890abcdef12345678",
-			config: &config.Config{
-				Suffix: "5678",
-			},
-			expected: true,
-		},
-		{
-			name:    "target match",
-			address: "0x1234567890abcdef1234567890abcdef12345678",
-			config: &config.Config{
-				Target: "1234567890abcdef1234567890abcdef12345678",
-			},
-			expected: true,
-		},
-		{
-			name:    "no match",
-			address: "0x1234567890abcdef1234567890abcdef12345678",
-			config: &config.Config{
-				Prefix: "9999",
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Add bytecode to config for testing
-			tt.config.Bytecode = "608060405234801561001057600080fd5b50600436106100365760003560e01c8063"
-			logger := logger.New()
-			miner := NewMiner(tt.config, logger)
-			result := miner.matchesOptimized(tt.address)
-			if result != tt.expected {
-				t.Errorf("matchesOptimized() = %v, want %v", result, tt.expected)
-			}
-		})
 	}
 }
 

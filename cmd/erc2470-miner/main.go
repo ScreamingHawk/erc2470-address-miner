@@ -11,6 +11,7 @@ import (
 	"github.com/screa/erc2470-address-miner/internal/config"
 	logpkg "github.com/screa/erc2470-address-miner/internal/logger"
 	minerpkg "github.com/screa/erc2470-address-miner/pkg/miner"
+	"github.com/screa/erc2470-address-miner/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,7 @@ func runMiner(cmd *cobra.Command, args []string) {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start mining in a goroutine
-	resultChan := make(chan *minerpkg.Result, 1)
+	resultChan := make(chan *types.Result, 1)
 	go func() {
 		result := miner.Mine()
 		resultChan <- result

@@ -39,14 +39,14 @@ func CalculateCreate2AddressWithHash(initCodeHash []byte, salt string) (string, 
 
 	// Convert factory bytes to common.Address
 	factoryAddress := common.BytesToAddress(factoryBytes)
-	
+
 	// Convert salt bytes to [32]byte array
 	var saltArray [32]byte
 	copy(saltArray[:], saltBytes)
 
 	// Use go-ethereum's CreateAddress2 function with pre-computed hash
 	address := crypto.CreateAddress2(factoryAddress, saltArray, initCodeHash)
-	
+
 	return toChecksumAddress(address.Bytes()), nil
 }
 
@@ -60,14 +60,14 @@ func CalculateCreate2AddressOptimized(factoryBytes, initCodeHash []byte, salt st
 
 	// Convert factory bytes to common.Address
 	factoryAddress := common.BytesToAddress(factoryBytes)
-	
+
 	// Convert salt bytes to [32]byte array
 	var saltArray [32]byte
 	copy(saltArray[:], saltBytes)
 
 	// Use go-ethereum's CreateAddress2 function with pre-computed values
 	address := crypto.CreateAddress2(factoryAddress, saltArray, initCodeHash)
-	
+
 	return toChecksumAddress(address.Bytes()), nil
 }
 

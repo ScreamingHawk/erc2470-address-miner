@@ -16,15 +16,15 @@ var (
 
 // Config holds the application configuration
 type Config struct {
-	Workers        int
-	Target         string
-	Prefix         string
-	Suffix         string
-	Verbose        bool
-	LogFile        string
-	Bytecode       string
-	BytecodeFile   string
-	LogInterval    int // Logging interval in seconds
+	Workers      int
+	Target       string
+	Prefix       string
+	Suffix       string
+	Verbose      bool
+	LogFile      string
+	Bytecode     string
+	BytecodeFile string
+	LogInterval  int // Logging interval in seconds
 }
 
 // NewConfig creates a new configuration with default values
@@ -65,20 +65,20 @@ func (c *Config) IsZeroPrefix() bool {
 	if c.Prefix == "" {
 		return false
 	}
-	
+
 	// Remove 0x prefix if present
 	prefix := c.Prefix
 	if len(prefix) > 2 && prefix[:2] == "0x" {
 		prefix = prefix[2:]
 	}
-	
+
 	// Check if all characters are '0'
 	for _, char := range prefix {
 		if char != '0' {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -88,7 +88,7 @@ func (c *Config) GetBytecode() ([]byte, error) {
 	if c.BytecodeFile != "" {
 		return readBytecodeFromFile(c.BytecodeFile)
 	}
-	
+
 	// Check if bytecode is provided directly
 	if c.Bytecode != "" {
 		// Remove 0x prefix if present
@@ -96,7 +96,7 @@ func (c *Config) GetBytecode() ([]byte, error) {
 		if len(code) > 2 && code[:2] == "0x" {
 			code = code[2:]
 		}
-		
+
 		// Decode hex string to bytes
 		bytes, err := hex.DecodeString(code)
 		if err != nil {
@@ -104,11 +104,10 @@ func (c *Config) GetBytecode() ([]byte, error) {
 		}
 		return bytes, nil
 	}
-	
+
 	// This should not happen if validation passes
 	return nil, ErrNoBytecodeSpecified
 }
-
 
 // readBytecodeFromFile reads bytecode from a file
 func readBytecodeFromFile(filename string) ([]byte, error) {
@@ -117,27 +116,26 @@ func readBytecodeFromFile(filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Convert to string and clean up
 	code := string(content)
 	code = strings.TrimSpace(code)
-	
+
 	// Remove 0x prefix if present
 	if len(code) > 2 && code[:2] == "0x" {
 		code = code[2:]
 	}
-	
+
 	// Ensure even length by padding with 0 if necessary
 	if len(code)%2 != 0 {
 		code = code + "0"
 	}
-	
+
 	// Decode hex string to bytes
 	bytes, err := hex.DecodeString(code)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return bytes, nil
 }
-

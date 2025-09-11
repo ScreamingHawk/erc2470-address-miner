@@ -24,18 +24,6 @@ func New() *Logger {
 	}
 }
 
-// NewFile creates a new logger that writes to a file
-func NewFile(filename string) (*Logger, error) {
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		return nil, err
-	}
-	
-	return &Logger{
-		Logger: log.New(file, "", log.LstdFlags|log.Lmicroseconds),
-	}, nil
-}
-
 // NewWriter creates a new logger that writes to the provided writer
 func NewWriter(w io.Writer) *Logger {
 	return &Logger{

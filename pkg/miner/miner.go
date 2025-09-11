@@ -1,8 +1,6 @@
 package miner
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"math/big"
 	"runtime"
 	"sync"
@@ -12,29 +10,21 @@ import (
 	"github.com/screa/erc2470-address-miner/internal/config"
 	"github.com/screa/erc2470-address-miner/internal/crypto"
 	"github.com/screa/erc2470-address-miner/internal/logger"
+	"github.com/screa/erc2470-address-miner/pkg/types"
+	"github.com/screa/erc2470-address-miner/pkg/worker"
 )
 
-// Miner provides high-performance address mining with advanced optimizations
+// Miner provides high-performance address mining coordination
 type Miner struct {
 	config       *config.Config
 	logger       *logger.Logger
 	attempts     int64
-	bestResult   *Result
+	bestResult   *types.Result
 	mu           sync.RWMutex
 	done         chan bool
 	wg           sync.WaitGroup
 	once         sync.Once
-	initcode     []byte
-	initcodeHash []byte
-	factoryBytes []byte
-}
-
-// Result represents a mining result
-type Result struct {
-	Salt     string
-	Address  string
-	Attempts int64
-	Duration time.Duration
+	workerConfig *types.WorkerConfig
 }
 
 // NewMiner creates a new miner instance
@@ -57,18 +47,26 @@ func NewMiner(cfg *config.Config, log *logger.Logger) *Miner {
 		panic("invalid factory address: " + err.Error())
 	}
 
+	workerConfig := &types.WorkerConfig{
+		Initcode:     initcode,
+		InitcodeHash: initcodeHash,
+		FactoryBytes: factoryBytes,
+		Target:       cfg.Target,
+		Prefix:       cfg.Prefix,
+		Suffix:       cfg.Suffix,
+		Verbose:      cfg.Verbose,
+	}
+
 	return &Miner{
 		config:       cfg,
 		logger:       log,
 		done:         make(chan bool),
-		initcode:     initcode,
-		initcodeHash: initcodeHash,
-		factoryBytes: factoryBytes,
+		workerConfig: workerConfig,
 	}
 }
 
 // Mine starts the mining process
-func (m *Miner) Mine() *Result {
+func (m *Miner) Mine() *types.Result {
 	start := time.Now()
 
 	// Start workers
@@ -111,16 +109,12 @@ func (m *Miner) Mine() *Result {
 func (m *Miner) worker(workerID int) {
 	defer m.wg.Done()
 
-	localAttempts := int64(0)
 	batchSize := 1000 // Process in batches for better performance
-
-	// Pre-allocate buffer for better performance
-	saltBuffer := make([]byte, 32)
+	w := worker.NewWorker(m.workerConfig, &m.attempts, &atomic.Value{})
 
 	for {
 		select {
 		case <-m.done:
-			atomic.AddInt64(&m.attempts, localAttempts)
 			return
 		default:
 			// Process a batch of attempts
@@ -128,107 +122,45 @@ func (m *Miner) worker(workerID int) {
 				// Check if we should stop before each attempt
 				select {
 				case <-m.done:
-					atomic.AddInt64(&m.attempts, localAttempts)
 					return
 				default:
 				}
 
-				// Generate random salt
-				if _, err := rand.Read(saltBuffer); err != nil {
+				result := w.GenerateAddress()
+				if result == nil {
 					continue
 				}
-
-				salt := hex.EncodeToString(saltBuffer)
-				address := m.hashToAddressOptimized(salt)
-
-				localAttempts++
 
 				// For zero prefix, track the best (lowest) address found for all addresses
 				if m.config.IsZeroPrefix() {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetterOptimized(address, m.bestResult.Address) {
-						m.bestResult = &Result{
-							Salt:     salt,
-							Address:  address,
-							Attempts: atomic.LoadInt64(&m.attempts) + localAttempts,
+					if m.bestResult == nil || m.isBetterOptimized(result.Address, m.bestResult.Address) {
+						m.bestResult = &types.Result{
+							Salt:     result.Salt,
+							Address:  result.Address,
+							Attempts: result.Attempts,
 						}
 					}
 					m.mu.Unlock()
 				}
 
 				// Check if this matches our criteria
-				if m.matchesOptimized(address) {
+				if result.IsMatch {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetterOptimized(address, m.bestResult.Address) {
-						m.bestResult = &Result{
-							Salt:     salt,
-							Address:  address,
-							Attempts: atomic.LoadInt64(&m.attempts) + localAttempts,
+					if m.bestResult == nil || m.isBetterOptimized(result.Address, m.bestResult.Address) {
+						m.bestResult = &types.Result{
+							Salt:     result.Salt,
+							Address:  result.Address,
+							Attempts: result.Attempts,
 						}
 						m.once.Do(func() { close(m.done) })
 					}
 					m.mu.Unlock()
-					atomic.AddInt64(&m.attempts, localAttempts)
 					return
 				}
 			}
-
-			// Update global attempt counter after each batch
-			atomic.AddInt64(&m.attempts, localAttempts)
-			localAttempts = 0
 		}
 	}
-}
-
-// hashToAddressOptimized performs optimized address generation
-func (m *Miner) hashToAddressOptimized(salt string) string {
-	// Calculate CREATE2 address using pre-computed factory bytes and initcode hash
-	address, err := crypto.CalculateCreate2AddressOptimized(m.factoryBytes, m.initcodeHash, salt)
-	if err != nil {
-		// This should not happen with valid bytecode
-		panic("CREATE2 calculation failed: " + err.Error())
-	}
-
-	return address
-}
-
-// matchesOptimized performs optimized pattern matching
-func (m *Miner) matchesOptimized(address string) bool {
-	// Remove 0x prefix for comparison
-	addr := address[2:] // Skip "0x"
-
-	// Check target
-	if m.config.Target != "" {
-		targetClean := m.config.Target
-		if len(targetClean) > 2 && targetClean[:2] == "0x" {
-			targetClean = targetClean[2:]
-		}
-		return addr == targetClean
-	}
-
-	// Check prefix
-	if m.config.Prefix != "" {
-		prefixClean := m.config.Prefix
-		if len(prefixClean) > 2 && prefixClean[:2] == "0x" {
-			prefixClean = prefixClean[2:]
-		}
-		if len(addr) >= len(prefixClean) && addr[:len(prefixClean)] == prefixClean {
-			return true
-		}
-	}
-
-	// Check suffix
-	if m.config.Suffix != "" {
-		suffixClean := m.config.Suffix
-		if len(suffixClean) > 2 && suffixClean[:2] == "0x" {
-			suffixClean = suffixClean[2:]
-		}
-		if len(addr) >= len(suffixClean) && addr[len(addr)-len(suffixClean):] == suffixClean {
-			return true
-		}
-	}
-
-	return false
 }
 
 // isBetterOptimized performs optimized address comparison
@@ -250,7 +182,7 @@ func (m *Miner) Stop() {
 }
 
 // GetBestResult returns the current best result
-func (m *Miner) GetBestResult() *Result {
+func (m *Miner) GetBestResult() *types.Result {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.bestResult
