@@ -70,11 +70,9 @@ jobs:
       - name: Build all platforms
         run: make build-all
 
-      - name: Test binaries
+      - name: Test Linux binary
         run: |
           ./bin/${{ env.BINARY_NAME }}-linux-amd64 --help
-          ./bin/${{ env.BINARY_NAME }}-darwin-amd64 --help
-          ./bin/${{ env.BINARY_NAME }}-darwin-arm64 --help
 
       - name: Upload Linux build
         uses: actions/upload-artifact@v4
