@@ -60,6 +60,28 @@ func (c *Config) GetTargetDescription() string {
 	return "unknown"
 }
 
+// IsZeroPrefix returns true if the prefix is a series of 0's
+func (c *Config) IsZeroPrefix() bool {
+	if c.Prefix == "" {
+		return false
+	}
+	
+	// Remove 0x prefix if present
+	prefix := c.Prefix
+	if len(prefix) > 2 && prefix[:2] == "0x" {
+		prefix = prefix[2:]
+	}
+	
+	// Check if all characters are '0'
+	for _, char := range prefix {
+		if char != '0' {
+			return false
+		}
+	}
+	
+	return true
+}
+
 // GetBytecode returns the bytecode to use for address calculation
 func (c *Config) GetBytecode() ([]byte, error) {
 	// Check if bytecode file is specified

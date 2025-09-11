@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/screa/erc2470-address-miner/internal/config"
 	logpkg "github.com/screa/erc2470-address-miner/internal/logger"
-	"github.com/screa/erc2470-address-miner/pkg/miner"
+	minerpkg "github.com/screa/erc2470-address-miner/pkg/miner"
 	"github.com/spf13/cobra"
 )
 
@@ -61,24 +63,71 @@ func runMiner(cmd *cobra.Command, args []string) {
 	}
 
 	// Create miner and start mining
-	miner := miner.NewMiner(cfg, logger)
-	result := miner.Mine()
+	miner := minerpkg.NewMiner(cfg, logger)
 
-	if result != nil {
-		logger.Printf("🎉 Found match!")
-		logger.Printf("Salt: 0x%s", result.Salt)
-		logger.Printf("Address: %s", result.Address)
-		logger.Printf("Attempts: %d", result.Attempts)
-		logger.Printf("Duration: %v", result.Duration)
-		
-		// Calculate rate safely
-		rate := 0.0
-		if result.Duration.Seconds() > 0 {
-			rate = float64(result.Attempts) / result.Duration.Seconds()
+	// Set up signal handling for Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start mining in a goroutine
+	resultChan := make(chan *minerpkg.Result, 1)
+	go func() {
+		result := miner.Mine()
+		resultChan <- result
+	}()
+
+	// Wait for either completion or signal
+	select {
+	case result := <-resultChan:
+		// Mining completed normally
+		if result != nil {
+			logger.Printf("🎉 Found match!")
+			logger.Printf("Salt: 0x%s", result.Salt)
+			logger.Printf("Address: %s", result.Address)
+			logger.Printf("Attempts: %d", result.Attempts)
+			logger.Printf("Duration: %v", result.Duration)
+
+			// Calculate rate safely
+			rate := 0.0
+			if result.Duration.Seconds() > 0 {
+				rate = float64(result.Attempts) / result.Duration.Seconds()
+			}
+			logger.Printf("Rate: %.2f hashes/sec", rate)
+		} else {
+			logger.Println("No match found.")
 		}
-		logger.Printf("Rate: %.2f hashes/sec", rate)
-	} else {
-		logger.Println("No match found.")
+	case <-sigChan:
+		// Interrupted by Ctrl+C
+		logger.Println("\nReceived interrupt signal (Ctrl+C). Stopping miners...")
+
+		// Stop the miner
+		miner.Stop()
+
+		// Wait for mining to stop
+		<-resultChan
+
+		// If prefix is zeros, output the current best result
+		if cfg.IsZeroPrefix() {
+			bestResult := miner.GetBestResult()
+			if bestResult != nil {
+				logger.Printf("Current best result (lowest address found):")
+				logger.Printf("Salt: 0x%s", bestResult.Salt)
+				logger.Printf("Address: %s", bestResult.Address)
+				logger.Printf("Attempts: %d", bestResult.Attempts)
+				logger.Printf("Duration: %v", bestResult.Duration)
+
+				// Calculate rate safely
+				rate := 0.0
+				if bestResult.Duration.Seconds() > 0 {
+					rate = float64(bestResult.Attempts) / bestResult.Duration.Seconds()
+				}
+				logger.Printf("Rate: %.2f hashes/sec", rate)
+			} else {
+				logger.Println("No addresses found matching the zero prefix.")
+			}
+		} else {
+			logger.Println("Mining stopped by user.")
+		}
 	}
 }
 
