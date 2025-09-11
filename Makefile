@@ -38,7 +38,7 @@ build:
 	$(CGO_ENV) go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) $(PKG)
 	@echo ✔ Output: $(BIN_DIR)/$(BINARY_NAME)
 
-## build-all: Cross-compile for Linux (amd64) and macOS (amd64/arm64)
+## build-all: Cross-compile for Linux (amd64), macOS (amd64/arm64), and Windows (amd64)
 build-all:
 	@echo Cross-building $(BINARY_NAME) v$(VERSION)...
 	@$(MKDIR)
@@ -48,6 +48,8 @@ build-all:
 	GOOS=darwin  GOARCH=amd64 $(CGO_ENV) go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME)-darwin-amd64 $(PKG)
 	@echo • darwin/arm64
 	GOOS=darwin  GOARCH=arm64 $(CGO_ENV) go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME)-darwin-arm64 $(PKG)
+	@echo • windows/amd64
+	GOOS=windows GOARCH=amd64 $(CGO_ENV) go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME)-windows-amd64.exe $(PKG)
 	@echo ✔ Cross-build complete in $(BIN_DIR)/
 
 ## deps: Sync and download Go module dependencies
@@ -77,7 +79,7 @@ install: build
 help:
 	@echo "Targets:"
 	@echo "  build       Build native binary"
-	@echo "  build-all   Cross-compile (linux/darwin)"
+	@echo "  build-all   Cross-compile (linux/darwin/windows)"
 	@echo "  deps        Sync & download modules"
 	@echo "  test        Run tests"
 	@echo "  test-race   Run tests with race detection"
