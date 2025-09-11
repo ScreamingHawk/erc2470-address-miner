@@ -59,6 +59,10 @@ deps:
 test:
 	go test -v ./...
 
+## test-race: Run all tests with race detection
+test-race:
+	go test -race -v ./...
+
 ## clean: Remove build artifacts
 clean:
 	@echo Cleaning $(BIN_DIR)...
@@ -76,6 +80,7 @@ help:
 	@echo "  build-all   Cross-compile (linux/darwin)"
 	@echo "  deps        Sync & download modules"
 	@echo "  test        Run tests"
+	@echo "  test-race   Run tests with race detection"
 	@echo "  clean       Remove build artifacts"
 	@echo "  install     Build and install to GOPATH/bin"
 	@echo ""
