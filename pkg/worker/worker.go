@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/screa/erc2470-address-miner/internal/crypto"
 	"github.com/screa/erc2470-address-miner/pkg/types"
 )
@@ -21,20 +20,14 @@ type Worker struct {
 	saltBuffer [32]byte
 	hexBuffer  [64]byte // 32 bytes * 2 for hex encoding
 
-	// Pre-computed values for faster address calculation
-	factoryAddress common.Address
 }
 
 // NewWorker creates a new worker instance
 func NewWorker(config *types.WorkerConfig, attempts *int64, mu *atomic.Value) *Worker {
-	// Pre-compute factory address for faster calculations
-	factoryAddress := common.BytesToAddress(config.FactoryBytes)
-
 	return &Worker{
-		config:         config,
-		attempts:       attempts,
-		mu:             mu,
-		factoryAddress: factoryAddress,
+		config:   config,
+		attempts: attempts,
+		mu:       mu,
 	}
 }
 
@@ -64,7 +57,7 @@ func (w *Worker) GenerateAddress() *types.WorkerResult {
 	salt := w.fastHexEncode(saltBytes)
 
 	// Calculate address using the fast method
-	address := crypto.CalculateCreate2Address(w.factoryAddress, w.config.InitcodeHash, saltBytes)
+	address := crypto.CalculateCreate2Address(w.config.InitcodeHash, saltBytes)
 
 	// Increment attempt counter
 	atomic.AddInt64(w.attempts, 1)
@@ -93,7 +86,7 @@ func (w *Worker) ProcessBatch(batchSize int) *types.WorkerResult {
 		salt := w.fastHexEncode(saltBytes)
 
 		// Calculate address using the fast method
-		address := crypto.CalculateCreate2Address(w.factoryAddress, w.config.InitcodeHash, saltBytes)
+		address := crypto.CalculateCreate2Address(w.config.InitcodeHash, saltBytes)
 
 		// Increment attempt counter
 		atomic.AddInt64(w.attempts, 1)

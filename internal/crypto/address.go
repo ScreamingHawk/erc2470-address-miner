@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -16,17 +14,27 @@ const (
 	FactoryAddress = "0xce0042B868300000d44A59004Da54A005ffdcf9f"
 )
 
+var (
+	// Pre-primed factory address with 0xff prefix for CREATE2 optimization
+	// This avoids the internal allocation in CreateAddress2
+	primedFactoryAddress = []byte{0xff, 0xce, 0x00, 0x42, 0xb8, 0x68, 0x30, 0x00, 0x00, 0xd4, 0x4a, 0x59, 0x00, 0x4d, 0xa5, 0x4a, 0x00, 0x5f, 0xfd, 0xcf, 0x9f}
+)
+
 // CalculateCreate2Address calculates the CREATE2 address with minimal allocations
-// This version avoids string allocations and uses pre-allocated buffers
-func CalculateCreate2Address(factoryAddress common.Address, initCodeHash []byte, saltBytes []byte) string {
+// This version uses pre-primed factory address to avoid internal allocations
+func CalculateCreate2Address(initCodeHash []byte, saltBytes []byte) string {
 	// Convert salt bytes to [32]byte array
 	var saltArray [32]byte
 	copy(saltArray[:], saltBytes)
 
-	// Use go-ethereum's CreateAddress2 function
-	address := crypto.CreateAddress2(factoryAddress, saltArray, initCodeHash)
+	// Use optimized keccak256 with pre-primed factory address
+	// This avoids the internal allocation in CreateAddress2 by pre-combining 0xff + factory address
+	hash := keccak256Bytes(append(primedFactoryAddress, append(saltArray[:], initCodeHash...)...))
 
-	return toChecksumAddress(address.Bytes())
+	// Extract last 20 bytes for address
+	addressBytes := hash[12:]
+
+	return toChecksumAddress(addressBytes)
 }
 
 // ---- helpers ----
@@ -42,8 +50,12 @@ func Keccak256(data []byte) []byte {
 	return keccak256Bytes(data)
 }
 
-func mustAddressBytes(addr string) ([]byte, error) {
-	h := strip0x(strings.TrimSpace(addr))
+// MustAddressBytes converts a hex address string to bytes
+func MustAddressBytes(addr string) ([]byte, error) {
+	h := strings.TrimSpace(addr)
+	if len(h) >= 2 && (h[0:2] == "0x" || h[0:2] == "0X") {
+		h = h[2:]
+	}
 	if len(h) != 40 {
 		return nil, fmt.Errorf("invalid address length: got %d hex chars, want 40", len(h))
 	}
@@ -52,66 +64,6 @@ func mustAddressBytes(addr string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid address hex: %w", err)
 	}
 	return b, nil
-}
-
-// MustAddressBytes is a public version of mustAddressBytes
-func MustAddressBytes(addr string) ([]byte, error) {
-	return mustAddressBytes(addr)
-}
-
-// normalizeSalt returns a 32-byte salt.
-// If salt parses as hex (with optional 0x), we left-pad with zeros to 32 bytes.
-// If it doesn't parse as hex, we use keccak256(salt) to obtain 32 bytes.
-func normalizeSalt(s string) ([]byte, error) {
-	raw := strings.TrimSpace(s)
-	hexStr := strip0x(raw)
-
-	// Try hex decode first
-	if isHexString(hexStr) {
-		// ensure even length
-		if len(hexStr)%2 == 1 {
-			hexStr = "0" + hexStr
-		}
-		b, err := hex.DecodeString(hexStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid salt hex: %w", err)
-		}
-		if len(b) > 32 {
-			// Spec requires exactly 32 bytes; truncate left (keep rightmost 32 bytes) is safer than silent error
-			b = b[len(b)-32:]
-		} else if len(b) < 32 {
-			pad := make([]byte, 32-len(b))
-			b = append(pad, b...)
-		}
-		return b, nil
-	}
-
-	// Not hex: keccak256 to 32 bytes
-	return keccak256Bytes([]byte(raw)), nil
-}
-
-func strip0x(s string) string {
-	if len(s) >= 2 && (s[0:2] == "0x" || s[0:2] == "0X") {
-		return s[2:]
-	}
-	return s
-}
-
-// simple check: all chars must be [0-9a-fA-F]
-func isHexString(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-		case r >= 'a' && r <= 'f':
-		case r >= 'A' && r <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // toChecksumAddress converts 20-byte address to EIP-55 checksummed string.
