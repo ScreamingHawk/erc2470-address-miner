@@ -3,145 +3,156 @@ package worker
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"hash"
 	"sync/atomic"
 
 	"github.com/screa/erc2470-address-miner/internal/crypto"
 	"github.com/screa/erc2470-address-miner/pkg/types"
+	"golang.org/x/crypto/sha3"
 )
 
 // Worker handles individual address generation and matching
 type Worker struct {
-	config     *types.WorkerConfig
-	attempts   *int64
-	bestResult *types.Result
-	mu         *atomic.Value // For thread-safe best result updates
+	config   *types.WorkerConfig
+	attempts *int64
 
-	// Pre-allocated buffers for performance
-	saltBuffer [32]byte
-	hexBuffer  [64]byte // 32 bytes * 2 for hex encoding
+	// Per-worker hasher and buffers (zero allocations in hot path)
+	hasher   hash.Hash
+	inputBuf [crypto.Create2InputLen]byte
+	hashBuf  [32]byte
+	addrBuf  [20]byte
+	saltBuf  [32]byte
+	hexBuf   [64]byte
 
+	// Fast PRNG state (wyrand-like) for salt generation without syscalls
+	prngState uint64
 }
 
 // NewWorker creates a new worker instance
-func NewWorker(config *types.WorkerConfig, attempts *int64, mu *atomic.Value) *Worker {
-	return &Worker{
+func NewWorker(config *types.WorkerConfig, attempts *int64) *Worker {
+	w := &Worker{
 		config:   config,
 		attempts: attempts,
-		mu:       mu,
+		hasher:   sha3.NewLegacyKeccak256(),
+	}
+	// Seed PRNG with crypto randomness once
+	var seed [8]byte
+	if _, err := rand.Read(seed[:]); err == nil {
+		w.prngState = uint64(seed[0]) | uint64(seed[1])<<8 | uint64(seed[2])<<16 | uint64(seed[3])<<24 |
+			uint64(seed[4])<<32 | uint64(seed[5])<<40 | uint64(seed[6])<<48 | uint64(seed[7])<<56
+	}
+	if w.prngState == 0 {
+		w.prngState = 1
+	}
+	return w
+}
+
+// fastRandUint64 returns a random uint64 from the worker's PRNG (non-crypto, for salt exploration)
+func (w *Worker) fastRandUint64() uint64 {
+	w.prngState += 0x60bee2b3d4d4a6c5 // wyrand constant
+	return w.prngState * (w.prngState >> 32)
+}
+
+// fastSaltBytes fills w.saltBuf with 32 random bytes from the fast PRNG
+func (w *Worker) fastSaltBytes() {
+	for i := 0; i < 32; i += 8 {
+		u := w.fastRandUint64()
+		w.saltBuf[i] = byte(u)
+		w.saltBuf[i+1] = byte(u >> 8)
+		w.saltBuf[i+2] = byte(u >> 16)
+		w.saltBuf[i+3] = byte(u >> 24)
+		w.saltBuf[i+4] = byte(u >> 32)
+		w.saltBuf[i+5] = byte(u >> 40)
+		w.saltBuf[i+6] = byte(u >> 48)
+		w.saltBuf[i+7] = byte(u >> 56)
 	}
 }
 
-// fastHexEncode encodes bytes to hex string using pre-allocated buffer
-func (w *Worker) fastHexEncode(data []byte) string {
-	hex.Encode(w.hexBuffer[:], data)
-	return string(w.hexBuffer[:len(data)*2])
+func (w *Worker) saltHexString() string {
+	hex.Encode(w.hexBuf[:], w.saltBuf[:])
+	return string(w.hexBuf[:64])
 }
 
-// fastRandomSaltBytes generates a random salt as bytes (most efficient)
-func (w *Worker) fastRandomSaltBytes() []byte {
-	if _, err := rand.Read(w.saltBuffer[:]); err != nil {
-		return nil
-	}
-	return w.saltBuffer[:]
-}
-
-// GenerateAddress generates a single address and checks if it matches criteria
+// GenerateAddress generates a single address and checks if it matches criteria (fast path).
 func (w *Worker) GenerateAddress() *types.WorkerResult {
-	// Generate random salt as bytes (most efficient)
-	saltBytes := w.fastRandomSaltBytes()
-	if saltBytes == nil {
-		return nil
-	}
+	w.fastSaltBytes()
+	// Build CREATE2 input: prefix(21) + salt(32) + suffix(32)
+	copy(w.inputBuf[0:crypto.Create2PrefixLen], w.config.Create2Prefix)
+	copy(w.inputBuf[crypto.Create2PrefixLen:crypto.Create2PrefixLen+32], w.saltBuf[:])
+	copy(w.inputBuf[crypto.Create2PrefixLen+32:], w.config.Create2Suffix)
 
-	// Convert to hex string for the result
-	salt := w.fastHexEncode(saltBytes)
+	crypto.Create2AddressInto(w.hasher, w.inputBuf[:], w.hashBuf[:], w.addrBuf[:])
 
-	// Calculate address using the fast method
-	address := crypto.CalculateCreate2Address(w.config.InitcodeHash, saltBytes)
-
-	// Increment attempt counter
+	// Batched atomic: add 1 to global every attempt (keep exact count for simplicity; could batch later)
 	atomic.AddInt64(w.attempts, 1)
 
-	// Check if this matches our criteria
-	isMatch := w.matchesOptimized(address)
-
+	isMatch := w.matchesBytes(w.addrBuf[:])
+	if !isMatch {
+		return &types.WorkerResult{
+			SaltBytes:    w.saltBuf,
+			AddressBytes: w.addrBuf,
+			Attempts:     atomic.LoadInt64(w.attempts),
+			IsMatch:      false,
+		}
+	}
 	return &types.WorkerResult{
-		Salt:     salt,
-		Address:  address,
-		Attempts: atomic.LoadInt64(w.attempts),
-		IsMatch:  isMatch,
+		Salt:         w.saltHexString(),
+		SaltBytes:    w.saltBuf,
+		Address:      crypto.AddressBytesToChecksumString(w.addrBuf[:]),
+		AddressBytes: w.addrBuf,
+		Attempts:     atomic.LoadInt64(w.attempts),
+		IsMatch:      true,
 	}
 }
 
-// ProcessBatch processes a batch of address generations
+// matchesBytes performs pattern matching on raw 20-byte address (no string allocation)
+func (w *Worker) matchesBytes(addr []byte) bool {
+	if len(addr) != 20 {
+		return false
+	}
+	if len(w.config.TargetBytes) == 20 {
+		return equalBytes(addr, w.config.TargetBytes)
+	}
+	if len(w.config.PrefixBytes) > 0 {
+		n := len(w.config.PrefixBytes)
+		if n > 20 {
+			n = 20
+		}
+		if !equalBytes(addr[:n], w.config.PrefixBytes) {
+			return false
+		}
+	}
+	if len(w.config.SuffixBytes) > 0 {
+		n := len(w.config.SuffixBytes)
+		if n > 20 {
+			n = 20
+		}
+		if !equalBytes(addr[20-n:], w.config.SuffixBytes) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalBytes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// ProcessBatch processes a batch of address generations (legacy; miner uses GenerateAddress in loop)
 func (w *Worker) ProcessBatch(batchSize int) *types.WorkerResult {
 	for i := 0; i < batchSize; i++ {
-		// Generate random salt as bytes (most efficient)
-		saltBytes := w.fastRandomSaltBytes()
-		if saltBytes == nil {
-			continue
-		}
-
-		// Convert to hex string for the result
-		salt := w.fastHexEncode(saltBytes)
-
-		// Calculate address using the fast method
-		address := crypto.CalculateCreate2Address(w.config.InitcodeHash, saltBytes)
-
-		// Increment attempt counter
-		atomic.AddInt64(w.attempts, 1)
-
-		// Check if this matches our criteria
-		if w.matchesOptimized(address) {
-			return &types.WorkerResult{
-				Salt:     salt,
-				Address:  address,
-				Attempts: atomic.LoadInt64(w.attempts),
-				IsMatch:  true,
-			}
+		r := w.GenerateAddress()
+		if r.IsMatch {
+			return r
 		}
 	}
-
 	return nil
-}
-
-// matchesOptimized performs optimized pattern matching
-func (w *Worker) matchesOptimized(address string) bool {
-	// Remove 0x prefix for comparison - use unsafe to avoid allocation
-	addr := address[2:] // Skip "0x"
-
-	// Check target
-	if w.config.Target != "" {
-		targetClean := w.config.Target
-		if len(targetClean) > 2 && targetClean[:2] == "0x" {
-			targetClean = targetClean[2:]
-		}
-		return addr == targetClean
-	}
-
-	// Check prefix - use optimized string comparison
-	if w.config.Prefix != "" {
-		prefixClean := w.config.Prefix
-		if len(prefixClean) > 2 && prefixClean[:2] == "0x" {
-			prefixClean = prefixClean[2:]
-		}
-		prefixLen := len(prefixClean)
-		if len(addr) >= prefixLen {
-			return addr[:prefixLen] == prefixClean
-		}
-	}
-
-	// Check suffix - use optimized string comparison
-	if w.config.Suffix != "" {
-		suffixClean := w.config.Suffix
-		if len(suffixClean) > 2 && suffixClean[:2] == "0x" {
-			suffixClean = suffixClean[2:]
-		}
-		suffixLen := len(suffixClean)
-		if len(addr) >= suffixLen {
-			return addr[len(addr)-suffixLen:] == suffixClean
-		}
-	}
-
-	return false
 }

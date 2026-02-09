@@ -1,7 +1,7 @@
 package miner
 
 import (
-	"math/big"
+	"encoding/hex"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -16,15 +16,16 @@ import (
 
 // Miner provides high-performance address mining coordination
 type Miner struct {
-	config       *config.Config
-	logger       *logger.Logger
-	attempts     int64
-	bestResult   *types.Result
-	mu           sync.RWMutex
-	done         chan bool
-	wg           sync.WaitGroup
-	once         sync.Once
-	workerConfig *types.WorkerConfig
+	config          *config.Config
+	logger          *logger.Logger
+	attempts        int64
+	bestResult      *types.Result
+	bestResultBytes [20]byte // for fast isBetter comparison
+	mu              sync.RWMutex
+	done            chan bool
+	wg              sync.WaitGroup
+	once            sync.Once
+	workerConfig    *types.WorkerConfig
 }
 
 // NewMiner creates a new miner instance
@@ -47,14 +48,41 @@ func NewMiner(cfg *config.Config, log *logger.Logger) *Miner {
 		panic("invalid factory address: " + err.Error())
 	}
 
+	// Pre-decode prefix/suffix/target for fast byte-level matching
+	var targetBytes, prefixBytes, suffixBytes []byte
+	if cfg.Target != "" {
+		targetBytes, err = crypto.HexToAddressBytes(cfg.Target)
+		if err != nil || len(targetBytes) != 20 {
+			panic("invalid target address length (must be 20 bytes / 40 hex chars)")
+		}
+	}
+	if cfg.Prefix != "" {
+		prefixBytes, err = crypto.HexToAddressBytes(cfg.Prefix)
+		if err != nil {
+			panic("invalid prefix: " + err.Error())
+		}
+	}
+	if cfg.Suffix != "" {
+		suffixBytes, err = crypto.HexToAddressBytes(cfg.Suffix)
+		if err != nil {
+			panic("invalid suffix: " + err.Error())
+		}
+	}
+
+	prefix21 := crypto.Create2PrefixBytes()
 	workerConfig := &types.WorkerConfig{
-		Initcode:     initcode,
-		InitcodeHash: initcodeHash,
-		FactoryBytes: factoryBytes,
-		Target:       cfg.Target,
-		Prefix:       cfg.Prefix,
-		Suffix:       cfg.Suffix,
-		Verbose:      cfg.Verbose,
+		Initcode:      initcode,
+		InitcodeHash:  initcodeHash,
+		FactoryBytes:  factoryBytes,
+		Target:        cfg.Target,
+		Prefix:        cfg.Prefix,
+		Suffix:        cfg.Suffix,
+		Verbose:       cfg.Verbose,
+		TargetBytes:   targetBytes,
+		PrefixBytes:   prefixBytes,
+		SuffixBytes:   suffixBytes,
+		Create2Prefix: prefix21[:],
+		Create2Suffix: initcodeHash,
 	}
 
 	return &Miner{
@@ -110,22 +138,15 @@ func (m *Miner) worker(workerID int) {
 	defer m.wg.Done()
 
 	batchSize := 1000 // Process in batches for better performance
-	w := worker.NewWorker(m.workerConfig, &m.attempts, &atomic.Value{})
+	w := worker.NewWorker(m.workerConfig, &m.attempts)
 
 	for {
 		select {
 		case <-m.done:
 			return
 		default:
-			// Process a batch of attempts
+			// Process a batch of attempts; check done only once per batch
 			for i := 0; i < batchSize; i++ {
-				// Check if we should stop before each attempt
-				select {
-				case <-m.done:
-					return
-				default:
-				}
-
 				result := w.GenerateAddress()
 				if result == nil {
 					continue
@@ -134,12 +155,21 @@ func (m *Miner) worker(workerID int) {
 				// For zero prefix, track the best (lowest) address found for all addresses
 				if m.config.IsZeroPrefix() {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetter(result.Address, m.bestResult.Address) {
+					if m.bestResult == nil || m.isBetterBytes(result.AddressBytes, m.bestResultBytes) {
+						saltStr := result.Salt
+						if saltStr == "" {
+							saltStr = hex.EncodeToString(result.SaltBytes[:])
+						}
+						addrStr := result.Address
+						if addrStr == "" {
+							addrStr = crypto.AddressBytesToChecksumString(result.AddressBytes[:])
+						}
 						m.bestResult = &types.Result{
-							Salt:     result.Salt,
-							Address:  result.Address,
+							Salt:     saltStr,
+							Address:  addrStr,
 							Attempts: result.Attempts,
 						}
+						m.bestResultBytes = result.AddressBytes
 					}
 					m.mu.Unlock()
 				}
@@ -147,12 +177,21 @@ func (m *Miner) worker(workerID int) {
 				// Check if this matches our criteria
 				if result.IsMatch {
 					m.mu.Lock()
-					if m.bestResult == nil || m.isBetter(result.Address, m.bestResult.Address) {
+					if m.bestResult == nil || m.isBetterBytes(result.AddressBytes, m.bestResultBytes) {
+						saltStr := result.Salt
+						if saltStr == "" {
+							saltStr = hex.EncodeToString(result.SaltBytes[:])
+						}
+						addrStr := result.Address
+						if addrStr == "" {
+							addrStr = crypto.AddressBytesToChecksumString(result.AddressBytes[:])
+						}
 						m.bestResult = &types.Result{
-							Salt:     result.Salt,
-							Address:  result.Address,
+							Salt:     saltStr,
+							Address:  addrStr,
 							Attempts: result.Attempts,
 						}
+						m.bestResultBytes = result.AddressBytes
 						m.once.Do(func() { close(m.done) })
 					}
 					m.mu.Unlock()
@@ -163,17 +202,20 @@ func (m *Miner) worker(workerID int) {
 	}
 }
 
-// Performs optimized address comparison
-func (m *Miner) isBetter(newAddr, oldAddr string) bool {
-	// Remove 0x prefix for comparison
-	newClean := newAddr[2:] // Skip "0x"
-	oldClean := oldAddr[2:] // Skip "0x"
-
-	// Compare as big integers to find "lowest" address
-	newInt, _ := new(big.Int).SetString(newClean, 16)
-	oldInt, _ := new(big.Int).SetString(oldClean, 16)
-
-	return newInt.Cmp(oldInt) < 0
+// isBetterBytes compares two 20-byte addresses; returns true if new is lexicographically smaller (lower address).
+// Zero oldAddr is treated as "no previous best" so any new address is better.
+func (m *Miner) isBetterBytes(newAddr, oldAddr [20]byte) bool {
+	// No previous best (all zeros): accept any
+	var zero [20]byte
+	if oldAddr == zero {
+		return true
+	}
+	for i := 0; i < 20; i++ {
+		if newAddr[i] != oldAddr[i] {
+			return newAddr[i] < oldAddr[i]
+		}
+	}
+	return false
 }
 
 // Stop stops the mining process

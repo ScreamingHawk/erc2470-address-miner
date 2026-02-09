@@ -23,28 +23,30 @@ func TestNewMiner(t *testing.T) {
 }
 
 func TestMinerIsBetter(t *testing.T) {
+	addr1 := [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	addr2 := [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
 	tests := []struct {
 		name     string
-		newAddr  string
-		oldAddr  string
+		newAddr  [20]byte
+		oldAddr  [20]byte
 		expected bool
 	}{
 		{
 			name:     "new address is better",
-			newAddr:  "0x0000000000000000000000000000000000000001",
-			oldAddr:  "0x0000000000000000000000000000000000000002",
+			newAddr:  addr1,
+			oldAddr:  addr2,
 			expected: true,
 		},
 		{
 			name:     "old address is better",
-			newAddr:  "0x0000000000000000000000000000000000000002",
-			oldAddr:  "0x0000000000000000000000000000000000000001",
+			newAddr:  addr2,
+			oldAddr:  addr1,
 			expected: false,
 		},
 		{
 			name:     "addresses are equal",
-			newAddr:  "0x0000000000000000000000000000000000000001",
-			oldAddr:  "0x0000000000000000000000000000000000000001",
+			newAddr:  addr1,
+			oldAddr:  addr1,
 			expected: false,
 		},
 	}
@@ -55,9 +57,9 @@ func TestMinerIsBetter(t *testing.T) {
 			cfg.Bytecode = "608060405234801561001057600080fd5b50600436106100365760003560e01c8063"
 			logger := logger.New()
 			miner := NewMiner(cfg, logger)
-			result := miner.isBetter(tt.newAddr, tt.oldAddr)
+			result := miner.isBetterBytes(tt.newAddr, tt.oldAddr)
 			if result != tt.expected {
-				t.Errorf("isBetter() = %v, want %v", result, tt.expected)
+				t.Errorf("isBetterBytes() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
