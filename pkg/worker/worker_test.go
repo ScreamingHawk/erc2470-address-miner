@@ -60,17 +60,6 @@ func TestWorkerMatches(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "target match",
-			addr: addr20,
-			config: &types.WorkerConfig{
-				Target:      "1234567890abcdef1234567890abcdef12345678",
-				TargetBytes: addr20,
-				Create2Prefix: make([]byte, 21),
-				Create2Suffix: make([]byte, 32),
-			},
-			expected: true,
-		},
-		{
 			name: "no match",
 			addr: addr20,
 			config: &types.WorkerConfig{

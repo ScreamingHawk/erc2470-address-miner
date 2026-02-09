@@ -10,14 +10,13 @@ import (
 
 // Errors
 var (
-	ErrNoTargetSpecified   = errors.New("must specify either --target, --prefix, or --suffix")
+	ErrNoPatternSpecified  = errors.New("must specify either --prefix or --suffix")
 	ErrNoBytecodeSpecified = errors.New("must specify either --bytecode or --bytecode-file")
 )
 
 // Config holds the application configuration
 type Config struct {
 	Workers      int
-	Target       string
 	Prefix       string
 	Suffix       string
 	Verbose      bool
@@ -37,8 +36,8 @@ func NewConfig() *Config {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
-	if c.Target == "" && c.Prefix == "" && c.Suffix == "" {
-		return ErrNoTargetSpecified
+	if c.Prefix == "" && c.Suffix == "" {
+		return ErrNoPatternSpecified
 	}
 	if c.Bytecode == "" && c.BytecodeFile == "" {
 		return ErrNoBytecodeSpecified
@@ -48,9 +47,6 @@ func (c *Config) Validate() error {
 
 // GetTargetDescription returns a human-readable description of the target
 func (c *Config) GetTargetDescription() string {
-	if c.Target != "" {
-		return "exact match: " + c.Target
-	}
 	if c.Prefix != "" {
 		return "prefix: " + c.Prefix
 	}

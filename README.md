@@ -6,7 +6,7 @@ A high-performance command line utility for mining ERC-2470 addresses using kecc
 
 - **High Performance**: Optimized Go implementation with parallel processing
 - **Memory Efficient**: Reduced garbage collection pressure with memory pools
-- **Flexible Matching**: Support for exact matches, prefixes, and suffixes
+- **Flexible Matching**: Support for prefix and suffix matching
 - **Cross-Platform**: Pre-built binaries for Windows, Linux, and macOS
 - **Docker Support**: Containerized deployment
 
@@ -51,9 +51,6 @@ docker run --rm -it -v ./bytecode.txt:/home/miner/bytecode.txt erc2470-miner --p
 
 # Mine for a specific suffix
 ./erc2470-miner --suffix 0000 --bytecode-file bytecode.txt
-
-# Mine for an exact address match
-./erc2470-miner --target 0x1234567890abcdef1234567890abcdef12345678 --bytecode 0x608060405234801561001057600080fd5b50600436106100365760003560e01c8063
 ```
 
 ### Advanced Options
@@ -71,7 +68,6 @@ docker run --rm -it -v ./bytecode.txt:/home/miner/bytecode.txt erc2470-miner --p
 | Option            | Short | Description                                                        | Default   |
 | ----------------- | ----- | ------------------------------------------------------------------ | --------- |
 | `--workers`       | `-w`  | Number of worker goroutines                                        | CPU count |
-| `--target`        | `-t`  | Target address pattern (exact match)                               | -         |
 | `--prefix`        | `-p`  | Address prefix to match                                            | -         |
 | `--suffix`        | `-s`  | Address suffix to match                                            | -         |
 | `--verbose`       | `-v`  | Verbose output with progress                                       | false     |

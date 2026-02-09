@@ -48,14 +48,8 @@ func NewMiner(cfg *config.Config, log *logger.Logger) *Miner {
 		panic("invalid factory address: " + err.Error())
 	}
 
-	// Pre-decode prefix/suffix/target for fast byte-level matching
-	var targetBytes, prefixBytes, suffixBytes []byte
-	if cfg.Target != "" {
-		targetBytes, err = crypto.HexToAddressBytes(cfg.Target)
-		if err != nil || len(targetBytes) != 20 {
-			panic("invalid target address length (must be 20 bytes / 40 hex chars)")
-		}
-	}
+	// Pre-decode prefix/suffix for fast byte-level matching
+	var prefixBytes, suffixBytes []byte
 	if cfg.Prefix != "" {
 		prefixBytes, err = crypto.HexToAddressBytes(cfg.Prefix)
 		if err != nil {
@@ -74,11 +68,9 @@ func NewMiner(cfg *config.Config, log *logger.Logger) *Miner {
 		Initcode:      initcode,
 		InitcodeHash:  initcodeHash,
 		FactoryBytes:  factoryBytes,
-		Target:        cfg.Target,
 		Prefix:        cfg.Prefix,
 		Suffix:        cfg.Suffix,
 		Verbose:       cfg.Verbose,
-		TargetBytes:   targetBytes,
 		PrefixBytes:   prefixBytes,
 		SuffixBytes:   suffixBytes,
 		Create2Prefix: prefix21[:],

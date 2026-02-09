@@ -110,9 +110,6 @@ func (w *Worker) matchesBytes(addr []byte) bool {
 	if len(addr) != 20 {
 		return false
 	}
-	if len(w.config.TargetBytes) == 20 {
-		return equalBytes(addr, w.config.TargetBytes)
-	}
 	if len(w.config.PrefixBytes) > 0 {
 		n := len(w.config.PrefixBytes)
 		if n > 20 {

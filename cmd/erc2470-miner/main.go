@@ -30,7 +30,6 @@ This tool uses keccak256 hashing to find addresses with specific patterns.`,
 	}
 
 	rootCmd.Flags().IntVarP(&cfg.Workers, "workers", "w", runtime.NumCPU(), "Number of worker goroutines")
-	rootCmd.Flags().StringVarP(&cfg.Target, "target", "t", "", "Target address pattern (hex, case-insensitive)")
 	rootCmd.Flags().StringVarP(&cfg.Prefix, "prefix", "p", "", "Address prefix to match")
 	rootCmd.Flags().StringVarP(&cfg.Suffix, "suffix", "s", "", "Address suffix to match")
 	rootCmd.Flags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")

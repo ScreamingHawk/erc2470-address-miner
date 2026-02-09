@@ -15,13 +15,11 @@ type WorkerConfig struct {
 	Initcode     []byte
 	InitcodeHash []byte
 	FactoryBytes []byte
-	Target       string
 	Prefix       string
 	Suffix       string
 	Verbose      bool
 
 	// Pre-decoded for fast byte-level matching (hot path). Nil if not set.
-	TargetBytes   []byte // 20 bytes for exact match
 	PrefixBytes   []byte // first N bytes of address must match
 	SuffixBytes   []byte // last N bytes of address must match
 	Create2Prefix []byte // 21 bytes: 0xff + factory, constant per run
